@@ -1,0 +1,194 @@
+/*
+	* Author			:	Akshay Sharma
+	* Created Date		:
+	* Last Updated Date	:
+	* Last Updated By	:
+	* Project			:
+*/
+
+log.info "------- Starting Executing Teardown Script -------------------"
+import com.aventstack.extentreports.AnalysisStrategy;
+import com.aventstack.extentreports.ExtentReports;
+import com.aventstack.extentreports.ExtentTest;
+import com.aventstack.extentreports.Status;
+import com.aventstack.extentreports.reporter.ExtentHtmlReporter;
+import com.soapuiFrameWork.*;
+import com.soapuiFrameWork.utility.PdfCreatorUtils;
+
+// Get the project path
+def projectPath = new com.eviware.soapui.support.GroovyUtils(context).projectPath
+def relativeFilePath = projectPath.replace("\\","//");
+def reportPath = relativeFilePath + "//Reports"
+def authorName = "NULL";
+def categoryName = "NULL";
+
+// Delete all the files in reports folder
+def cleanCreateFolder = FilesDeleter.DeleteFilesInFolder(reportPath)
+if(cleanCreateFolder.equalsIgnoreCase("true")){
+	log.info "New Folder is created at " + reportPath
+} else {
+	log.error "Folder creation failed"
+}
+
+ExtentHtmlReporter htmlReporter = new ExtentHtmlReporter(reportPath + "//soapuiExecutionReport.html");
+PdfCreatorUtils.pdfFileName(reportPath + "//soapuiExecutionReport");
+
+
+ExtentReports extent = new ExtentReports ();
+extent.attachReporter(htmlReporter);
+extent.setSystemInfo("Host Name", "Automation Reporter");
+extent.setSystemInfo("Environment", "Automation");
+extent.setSystemInfo("Executer", "Akshay Sharma");
+
+htmlReporter.config().setDocumentTitle("SOAPUI Automation Report");
+htmlReporter.config().setReportName("Automation Testing Reporter");
+htmlReporter.config().setChartVisibilityOnOpen(true);
+
+// Actual logic for Reports update
+ArrayList<String> failedMessages = new ArrayList<String>();
+runner.getResults().each { testSuiteRunner ->
+
+	HashMap<String,String> tableMapper = new HashMap<String, String>();
+	
+	def testSuiteName = testSuiteRunner.getTestSuite().getName();
+	tableMapper.put("TestSuiteName", testSuiteName);
+	
+	if("null" == testSuiteRunner.getTestSuite().getPropertyValue("Author").toString() && "null" == testSuiteRunner.getTestSuite().getPropertyValue("Category").toString()){
+		authorName = "NULL"
+		categoryName = "NULL"
+	} else if ("null" == testSuiteRunner.getTestSuite().getPropertyValue("Author").toString() && testSuiteRunner.getTestSuite().getPropertyValue("Category").toString() != "null"){
+		authorName = "NULL"
+		categoryName = testSuiteRunner.getTestSuite().getPropertyValue("Category")
+	} else if (testSuiteRunner.getTestSuite().getPropertyValue("Author") != "NULL" && "null" == testSuiteRunner.getTestSuite().getPropertyValue("Category").toString()){
+		authorName = testSuiteRunner.getTestSuite().getPropertyValue("Author")
+		categoryName = "NULL"
+	} else {
+		authorName = testSuiteRunner.getTestSuite().getPropertyValue("Author")
+		categoryName = testSuiteRunner.getTestSuite().getPropertyValue("Category")
+	}
+	
+	ExtentTest parentTest = extent.createTest(testSuiteRunner.getTestSuite().getName());
+	//log.info('Test Suite ' + testSuiteRunner.getTestSuite().getName() + ' TestRunner.status = ' + testSuiteRunner.getStatus());
+	
+	testSuiteRunner.getResults().each { testCaseRunner ->
+	
+		def testCaseName = testCaseRunner.getTestCase().getName()
+		tableMapper.put("TestCaseName", testCaseName)
+	
+		ExtentTest test = parentTest.createNode(testCaseRunner.getTestCase().getName(), testCaseRunner.getTestCase().getDescription());
+		//log.info('Test Case ' + testCaseRunner.getTestCase().getName() + ' TestRunner.status = ' + testCaseRunner.getStatus());
+
+		test.assignAuthor(authorName)
+		test.assignCategory(categoryName)
+		
+		testCaseRunner.getResults().each { testStepResult ->
+			//log.info('Test Step ' + testStepResult.getTestStep().getName() + ' TestRunner.status = ' + testStepResult.getStatus());
+
+			def testStepStatus = testStepResult.getStatus();
+			def testStepName = testStepResult.getTestStep.getName();
+			def Request = "NULL"
+			def Response = "NULL"
+			def GroovyScript = "NULL"
+			def Req = "NULL"
+			def Res = "NULL"
+			def actualData
+			
+			def tempTCName = testCaseName.replace('/','');
+			def tempStpName = testStepName.replace('/','');
+			
+			def ResFile = relativeFilePath+"//ReqRespPairs//"+tempTCName+"_"+testTStpName+"_Failed.txt"
+			def hrefLocation = "./" + tempTCName + "_" + tempStpName + "_Failed.txt"
+				
+			def getTestStepDetails = project.testSuites[testSuiteName].testCases[testCaseName].getTestStepByName(testStepName)
+			
+			if(testStepStatus.toString().equalsIgnoreCase('OK') || testStepStatus.toString().equalsIgnoreCase('PASS')) {
+				log.info "I am here"
+				Request = getTestStepDetails.getProperty("RawRequest")
+				Response = getTestStepDetails.getProperty("Response")
+				
+				if(Request && Response) {
+					log.info "Test Log Started for TestStep " + testStepName + " of TestCase " + tempTCName + " of TestSuite " + testSuiteName
+					
+					test.pass(testStepName + "<b> PASSED </b>");
+					tableMapper.put(testStepName, "PASSED");
+					
+					log.info "Test Log Completed for " + testStepName
+				} else {
+					test.pass(testStepName + "<b> PASSED </b>");
+					tableMapper.put(testStepName, "PASSED");
+				}
+			} else {
+				testStepResult.getMessages().each { message ->
+				failedMessages.add(message);	
+				}
+			
+				if(getTestStepDetails.getProperty("Request") || getTestStepDetails.getProperty("Response") || getTestStepDetails.getProperty("Result")) {
+					log.info "Test Log Started for TestStep " + testStepName + " of TestCase " + tempTCName + " of TestSuite " + testSuiteName
+					
+					Request = getTestStepDetails.getProperty("RawRequest")
+					Response = getTestStepDetails.getProperty("Response")
+					GroovyScript = getTestStepDetails.getProperty("Result")
+					
+					if(GroovyScript.toString().equalsIgnoreCase("NULL")) {
+						Req = Request.getValue();
+						Res = Response.getValue();
+						
+						actualData = "------------- REQUEST DATA ---------------\n\n" + Req + "\n\n------------- RESPONSE DATA ---------------\n\n" + Res + "\n\n------------- REQUEST DATA ---------------\n\n" + failedMessages.toString()
+						
+						def data = new File(ResFile)
+						data.write(actualData,"UTF-8")
+						
+						def appendReqAndRespPair = '<a href="' + hrefLocation + '" target="_blank">Failed Step Details </a>'
+						
+						test.fail(testStepName +" <b>Failed. Check Details | <b> " + "<span style='font-weight:bold;'></span>" + appendReqAndRespPair);
+						tableMapper.put(testStepName, "FAILED");
+						
+						log.info "Test Log Completed for " + testStepName
+						failedMessages.clear();
+					} else if (Request.toString().equalsIgnoreCase("NULL")) {
+						log.info "Test Log Started for TestStep " + testStepName + " of TestCase " + tempTCName + " of TestSuite " + testSuiteName
+						
+						Req = "No Request Found. Check below error details"
+						Res = "No Response Found. Check below error details"
+						
+						actualData = "------------- REQUEST DATA ---------------\n\n" + Req + "\n\n------------- RESPONSE DATA ---------------\n\n" + Res + "\n\n------------- REQUEST DATA ---------------\n\n" + failedMessages.toString()
+						
+						def data = new File(ResFile)
+						data.write(actualData,"UTF-8")
+						
+						def appendReqAndRespPair = '<a href="' + hrefLocation + '" target="_blank">Failed Step Details </a>'
+						
+						test.fail(testStepName +" <b>Failed. Check Details | <b> " + "<span style='font-weight:bold;'></span>" + appendReqAndRespPair);
+						tableMapper.put(testStepName, "FAILED");
+						
+						log.info "Test Log Completed for " + testStepName
+						failedMessages.clear();
+					}
+				} else {
+					log.info "Test Log Started for TestStep " + testStepName + " of TestCase " + tempTCName + " of TestSuite " + testSuiteName
+					
+					Req = "No Request Found. Check below error details"
+					Res = "No Response Found. Check below error details"
+					
+					actualData = "------------- REQUEST DATA ---------------\n\n" + Req + "\n\n------------- RESPONSE DATA ---------------\n\n" + Res + "\n\n------------- REQUEST DATA ---------------\n\n" + failedMessages.toString()
+						
+					def data = new File(ResFile)
+					data.write(actualData,"UTF-8")
+					
+					def appendReqAndRespPair = '<a href="' + hrefLocation + '" target="_blank">Failed Step Details </a>'
+					
+					test.fail(testStepName +" <b>Failed. Check Details | <b> " + "<span style='font-weight:bold;'></span>" + appendReqAndRespPair);
+					tableMapper.put(testStepName, "FAILED");
+					
+					log.info "Test Log Completed for " + testStepName
+					failedMessages.clear();
+				}
+			}
+		}
+		PdfCreatorUtils.pdfTableWriter(tableMapper);
+		tableMapper.clear();
+	}
+}
+extent.flush();
+PdfCreatorUtils.pdfFlush();
+log.info "------- Completed Executing Teardown Script ------------------"
